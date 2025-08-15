@@ -4,6 +4,7 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.javalin.http.BadRequestResponse
 import io.javalin.http.Context
 import io.mfj.uns.model.Event
+import java.util.UUID
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -41,28 +42,57 @@ class UnsService(
         }
     }
 
-    fun createEvent(logEvent: Event, ctx: Context) {
+    fun getEventById(eventId: String): Event? {
+        val url = "$elasticUrl/$index/_search"
+        log.info("Querying for event with ID: $eventId")
+        val reqBody = """
+        {
+            "query": { "term": { "id.keyword": "$eventId" } }
+        }
+    """.trimIndent().toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url(url)
+            .post(reqBody)
+            .addHeader("Authorization", Credentials.basic(username, password))
+            .build()
+        client.newCall(request).execute().use { resp ->
+            if (!resp.isSuccessful) throw Exception("Failed to query ES: ${resp.code}")
+            val json = mapper.readTree(resp.body!!.string())
+            val hits = json["hits"]["hits"]
+            if (hits.isEmpty()) return null
+            val esId = hits[0]["_id"].asText()
+            val eventObj = mapper.treeToValue(hits[0]["_source"], Event::class.java)
+            return eventObj
+        }
+    }
+
+    fun createEvent(event: Event): Event {
         // Validate fields
         log.info("Sending log")
-        val payload = logEvent.payload
+        val payload = event.payload
         log.info("Payload: $payload")
         if (!payload.containsKey("email") || !payload.containsKey("slack")) {
             throw BadRequestResponse("Payload must contain both 'email' and 'slack' fields.")
         }
+        // Currently manually setting ideas to write logs directly to logstash, could consider
+        // using elastic ID instead
+        event.id = UUID.randomUUID().toString()
+        log.info("Generated event: $event")
+        val eventBody = mapper.writeValueAsString(event)
         // Forward to Logstash (assuming HTTP input plugin is enabled; otherwise, adapt as needed)
         val req = Request.Builder()
             .url("$logstashUrl")
-            .post(ctx.body().toRequestBody("application/json".toMediaType()))
+            .post(eventBody.toRequestBody("application/json".toMediaType()))
             .build()
         client.newCall(req).execute().use { resp ->
             log.info("Processing response")
             if (!resp.isSuccessful) {
                 log.error("Failed to forward log to logstash: ${resp.code} ${resp.body?.string()}")
-                ctx.status(502).result("Failed to forward log to logstash")
+//                ctx.status(502).result("Failed to forward log to logstash")
 
             }
             log.info("Logstash response: ${resp.code} ${resp.body?.string()}")
         }
-        ctx.status(201).json(mapOf("message" to "Log accepted"))
+        return event
     }
 }

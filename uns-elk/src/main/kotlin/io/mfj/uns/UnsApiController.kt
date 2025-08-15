@@ -33,6 +33,22 @@ class UnsApiController {
             }
         }
 
+        // GET /events/{id} endpoint
+        app.get("/events/{id}") { ctx ->
+            val eventId = ctx.pathParam("id")
+            try {
+                val event = unsService.getEventById(eventId)
+                if (event != null) {
+                    ctx.json(event)
+                } else {
+                    ctx.status(404).json(mapOf("error" to "Event not found"))
+                }
+            } catch (e: Exception) {
+                log.error("Failed to retrieve event with ID $eventId: ${e.message}")
+                ctx.status(500).json(mapOf("error" to "Failed to retrieve event"))
+            }
+        }
+
         // POST /logs endpoint
         app.post("/events") { ctx ->
             val logEvent = try {
@@ -42,7 +58,8 @@ class UnsApiController {
                 throw BadRequestResponse("Malformed JSON or missing fields: ${e.message}")
             }
             try {
-                unsService.createEvent(logEvent, ctx)
+                unsService.createEvent(logEvent)
+                ctx.json(logEvent)
             } catch (e: Exception) {
                 log.error("Failed to create event: ${e.message}")
                 ctx.status(500).json(mapOf("error" to "Failed to create event"))
