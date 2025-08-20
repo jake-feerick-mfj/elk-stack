@@ -2,7 +2,6 @@ package io.mfj.uns.service
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.javalin.http.BadRequestResponse
-import io.javalin.http.Context
 import io.mfj.uns.model.Event
 import java.util.UUID
 import okhttp3.Credentials
@@ -60,9 +59,7 @@ class UnsService(
             val json = mapper.readTree(resp.body!!.string())
             val hits = json["hits"]["hits"]
             if (hits.isEmpty()) return null
-            val esId = hits[0]["_id"].asText()
-            val eventObj = mapper.treeToValue(hits[0]["_source"], Event::class.java)
-            return eventObj
+            return mapper.treeToValue(hits[0]["_source"], Event::class.java)
         }
     }
 
@@ -88,7 +85,6 @@ class UnsService(
             log.info("Processing response")
             if (!resp.isSuccessful) {
                 log.error("Failed to forward log to logstash: ${resp.code} ${resp.body?.string()}")
-//                ctx.status(502).result("Failed to forward log to logstash")
 
             }
             log.info("Logstash response: ${resp.code} ${resp.body?.string()}")
